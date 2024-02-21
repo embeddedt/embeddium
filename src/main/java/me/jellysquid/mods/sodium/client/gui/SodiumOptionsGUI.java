@@ -12,7 +12,6 @@ import me.jellysquid.mods.sodium.client.gui.prompt.ScreenPrompt;
 import me.jellysquid.mods.sodium.client.gui.prompt.ScreenPromptable;
 import me.jellysquid.mods.sodium.client.gui.widgets.FlatButtonWidget;
 import me.jellysquid.mods.sodium.client.util.Dim2i;
-import net.caffeinemc.mods.sodium.api.util.ColorMixer;
 import net.minecraft.ChatFormatting;
 import net.minecraft.Util;
 import net.minecraft.client.Minecraft;
@@ -26,6 +25,7 @@ import net.minecraft.network.chat.FormattedText;
 import net.minecraft.network.chat.Style;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraftforge.fml.loading.FMLLoader;
+import org.embeddedt.embeddium.api.OptionGUIConstructionEvent;
 import org.jetbrains.annotations.Nullable;
 import org.lwjgl.glfw.GLFW;
 
@@ -58,7 +58,7 @@ public class SodiumOptionsGUI extends Screen implements ScreenPromptable {
     private @Nullable ScreenPrompt prompt;
 
     public SodiumOptionsGUI(Screen prevScreen) {
-        super(Component.translatable(MODNAME + " Options"));
+        super(Component.literal(MODNAME + " Options"));
 
         this.prevScreen = prevScreen;
 
@@ -66,6 +66,8 @@ public class SodiumOptionsGUI extends Screen implements ScreenPromptable {
         this.pages.add(SodiumGameOptionPages.quality());
         this.pages.add(SodiumGameOptionPages.performance());
         this.pages.add(SodiumGameOptionPages.advanced());
+
+        OptionGUIConstructionEvent.BUS.post(new OptionGUIConstructionEvent(this.pages));
 
         this.checkPromptTimers();
     }
@@ -213,21 +215,28 @@ public class SodiumOptionsGUI extends Screen implements ScreenPromptable {
         int y = 28;
 
         for (OptionGroup group : this.currentPage.getGroups()) {
+            boolean optionShown = false;
             // Add each option's control element
             for (Option<?> option : group.getOptions()) {
-                Control<?> control = option.getControl();
-                ControlElement<?> element = control.createElement(new Dim2i(x, y, 200, 18));
+                if (option.isVisible()) {
+                    Control<?> control = option.getControl();
+                    ControlElement<?> element = control.createElement(new Dim2i(x, y, 200, 18));
 
-                this.addRenderableWidget(element);
+                    this.addRenderableWidget(element);
 
-                this.controls.add(element);
+                    this.controls.add(element);
 
-                // Move down to the next option
-                y += 18;
+                    // Move down to the next option
+                    y += 18;
+
+                    optionShown = true;
+                }
             }
 
-            // Add padding beneath each option group
-            y += 4;
+            if (optionShown) {
+                // Add padding beneath each option group that has at least one visible option
+                y += 4;
+            }
         }
     }
 
@@ -256,6 +265,22 @@ public class SodiumOptionsGUI extends Screen implements ScreenPromptable {
                         .filter(ControlElement::isFocused)
                         .findFirst()
                         .orElse(null));
+
+        // If any options changed value on this frame, rebuild the whole GUI, so that
+        // visibility predicates are tested
+        if(this.getAllOptions().anyMatch(Option::hasChangedSinceLastPoll)) {
+            // Save hovered/focused option
+            Option<?> originallyHoveredOption = hovered != null ? hovered.getOption() : null;
+            Option<?> originallyFocusedOption;
+            if(this.getFocused() instanceof ControlElement<?>) {
+                originallyFocusedOption = ((ControlElement<?>)this.getFocused()).getOption();
+            } else {
+                originallyFocusedOption = null;
+            }
+            this.rebuildGUI();
+            hovered = this.getActiveControls().filter(e -> e.getOption() == originallyHoveredOption).findFirst().orElse(null);
+            this.setFocused(this.getActiveControls().filter(e -> e.getOption() == originallyFocusedOption).findFirst().orElse(null));
+        }
 
         boolean hasChanges = this.getAllOptions()
                 .anyMatch(Option::hasChanged);
